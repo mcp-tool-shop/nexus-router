@@ -1,0 +1,21 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "nexus-router"
+version = "0.1.1"
+description = "Event-sourced MCP router with provenance + integrity"
+readme = "README.md"
+requires-python = ">=3.9"
+dependencies = ["jsonschema>=4.0.0"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["nexus_router*"]
+
+[tool.setuptools.package-data]
+nexus_router = ["schemas/*.json"]
