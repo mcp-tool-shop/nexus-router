@@ -19,7 +19,7 @@ def _load_schema(name: str) -> Dict[str, Any]:
 
 
 REQUEST_SCHEMA = _load_schema("nexus-router.run.request.v0.1.json")
-RESPONSE_SCHEMA = _load_schema("nexus-router.run.response.v0.1.json")
+RESPONSE_SCHEMA = _load_schema("nexus-router.run.response.v0.4.json")
 
 
 def test_minimal_request_valid():

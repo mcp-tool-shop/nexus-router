@@ -5,6 +5,39 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.0] - 2026-01-27
+
+### Added
+
+- **Dispatch Adapters**: Pluggable tool execution interface for real tool integration
+  - `DispatchAdapter` protocol defining `adapter_id` property and `call()` method
+  - `NullAdapter`: Default adapter returning deterministic simulated output
+  - `FakeAdapter`: Configurable test adapter with response injection, call logging, and error simulation
+- **Error Taxonomy**: Structured exception handling for dispatch failures
+  - `NexusOperationalError`: Expected failures (network, timeout) - recorded but not re-raised
+  - `NexusBugError`: Unexpected failures (invariant violations) - recorded then re-raised
+  - Unknown exceptions treated as bugs and re-raised after recording
+- **apply mode execution**: Real tool calls via adapter when `mode=apply`
+  - Policy gating (`allow_apply`) enforced before dispatch
+  - Call duration tracked in milliseconds
+  - Adapter ID recorded in events and response
+- **dry_run mode isolation**: Never invokes adapter, returns simulated output
+- **Response schema v0.4**: Added `adapter_id` field to summary
+
+### Changed
+
+- `tool.run()` accepts optional `adapter` parameter
+- `Router.__init__()` accepts optional `adapter` parameter (defaults to `NullAdapter`)
+- Response `summary` now includes `adapter_id`
+- Event payloads include `adapter_id` for traceability
+
+### Notes
+
+- Adapters are explicitly passed to `run()` (no global registry)
+- `SubprocessAdapter` for external processes deferred to v0.5
+- Operational errors allow run to continue (subsequent steps execute)
+- Bug errors halt the run immediately after recording
+
 ## [0.3.0] - 2026-01-27
 
 ### Added

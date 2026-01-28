@@ -1,9 +1,12 @@
 from __future__ import annotations
 
-from typing import Any, Dict, List
+import time
+from typing import Any, Dict, List, Optional
 
 from . import events as E
+from .dispatch import DispatchAdapter, NullAdapter
 from .event_store import EventStore
+from .exceptions import NexusBugError, NexusOperationalError
 from .policy import gate_apply
 from .provenance import build_provenance_bundle
 
@@ -25,8 +28,13 @@ def _unique_in_order(items: List[str]) -> List[str]:
 
 
 class Router:
-    def __init__(self, store: EventStore) -> None:
+    def __init__(
+        self,
+        store: EventStore,
+        adapter: Optional[DispatchAdapter] = None,
+    ) -> None:
         self.store = store
+        self.adapter: DispatchAdapter = adapter if adapter is not None else NullAdapter()
 
     def run(self, request: Dict[str, Any]) -> Dict[str, Any]:
         mode = request.get("mode", "dry_run")
@@ -60,46 +68,118 @@ class Router:
         for step in plan:
             step_id = step["step_id"]
             call = step["call"]
-            tools_used.append(call["method"])
+            tool = call.get("tool", "unknown")
+            method = call["method"]
+            args = call.get("args", {})
+            tools_used.append(method)
 
             self.store.append(run_id, E.STEP_STARTED, {"step_id": step_id})
-            self.store.append(run_id, E.TOOL_CALL_REQUESTED, {"step_id": step_id, "call": call})
+            self.store.append(
+                run_id,
+                E.TOOL_CALL_REQUESTED,
+                {
+                    "step_id": step_id,
+                    "call": call,
+                    "adapter_id": self.adapter.adapter_id,
+                },
+            )
 
             try:
-                if mode == "dry_run":
-                    output = {"simulated": True, "note": "v0.1 dry_run placeholder"}
-                    simulated = True
-                else:
-                    gate_apply(policy)
-                    output = {"applied": True, "note": "v0.1 apply placeholder"}
-                    simulated = False
+                output, simulated, duration_ms = self._dispatch_call(
+                    mode=mode,
+                    policy=policy,
+                    tool=tool,
+                    method=method,
+                    args=args,
+                )
 
                 self.store.append(
                     run_id,
                     E.TOOL_CALL_SUCCEEDED,
-                    {"step_id": step_id, "simulated": simulated, "output": output},
+                    {
+                        "step_id": step_id,
+                        "simulated": simulated,
+                        "output": output,
+                        "adapter_id": self.adapter.adapter_id,
+                        "duration_ms": duration_ms,
+                    },
                 )
                 status = "ok"
 
-            except PermissionError as ex:
+            except NexusOperationalError as ex:
+                # Operational error: record failure, continue to next step or end run
                 outcome = "error"
                 status = "error"
                 output = {}
                 self.store.append(
                     run_id,
                     E.TOOL_CALL_FAILED,
-                    {"step_id": step_id, "error": str(ex), "kind": "PermissionError"},
+                    {
+                        "step_id": step_id,
+                        "error_kind": "operational",
+                        "error_code": ex.error_code,
+                        "message": str(ex),
+                        "adapter_id": self.adapter.adapter_id,
+                    },
+                )
+                # Don't re-raise - run continues but will end as FAILED
+
+            except NexusBugError as ex:
+                # Bug error: record and re-raise
+                outcome = "error"
+                status = "error"
+                output = {}
+                self.store.append(
+                    run_id,
+                    E.TOOL_CALL_FAILED,
+                    {
+                        "step_id": step_id,
+                        "error_kind": "bug",
+                        "error_code": ex.error_code,
+                        "message": str(ex),
+                        "adapter_id": self.adapter.adapter_id,
+                    },
+                )
+                self.store.append(
+                    run_id,
+                    E.RUN_FAILED,
+                    {"reason": "bug_error", "step_id": step_id},
+                )
+                self.store.set_run_status(run_id, "FAILED")
+                raise
+
+            except PermissionError as ex:
+                # Legacy: policy gate failure
+                outcome = "error"
+                status = "error"
+                output = {}
+                self.store.append(
+                    run_id,
+                    E.TOOL_CALL_FAILED,
+                    {
+                        "step_id": step_id,
+                        "error_kind": "operational",
+                        "error_code": "PERMISSION_DENIED",
+                        "message": str(ex),
+                        "adapter_id": self.adapter.adapter_id,
+                    },
                 )
 
             except Exception as ex:
-                # Posture A: record + re-raise
+                # Unknown exception: treat as bug, record + re-raise
                 outcome = "error"
                 status = "error"
                 output = {}
                 self.store.append(
                     run_id,
                     E.TOOL_CALL_FAILED,
-                    {"step_id": step_id, "error": repr(ex), "kind": "UnexpectedError"},
+                    {
+                        "step_id": step_id,
+                        "error_kind": "bug",
+                        "error_code": "UNKNOWN_ERROR",
+                        "message": repr(ex),
+                        "adapter_id": self.adapter.adapter_id,
+                    },
                 )
                 self.store.append(
                     run_id,
@@ -147,9 +227,47 @@ class Router:
                 "outputs_total": len(results),
                 "outputs_applied": applied_count,
                 "outputs_skipped": skipped_count,
+                "adapter_id": self.adapter.adapter_id,
             },
             "run": {"run_id": run_id, "events_committed": events_committed},
             "plan": plan,
             "results": results,
             "provenance": prov_bundle.get("provenance", {"artifacts": [], "records": []}),
         }
+
+    def _dispatch_call(
+        self,
+        *,
+        mode: str,
+        policy: Dict[str, Any],
+        tool: str,
+        method: str,
+        args: Dict[str, Any],
+    ) -> tuple[Dict[str, Any], bool, int]:
+        """
+        Dispatch a tool call based on mode.
+
+        Returns:
+            (output, simulated, duration_ms)
+        """
+        if mode == "dry_run":
+            # dry_run: never call adapter, return simulated output
+            output: Dict[str, Any] = {
+                "simulated": True,
+                "adapter_id": self.adapter.adapter_id,
+                "tool": tool,
+                "method": method,
+            }
+            return output, True, 0
+
+        # apply mode: gate first, then call adapter
+        gate_apply(policy)
+
+        start_time = time.monotonic()
+        output = self.adapter.call(tool, method, args)
+        duration_ms = int((time.monotonic() - start_time) * 1000)
+
+        # Ensure adapter_id is in output
+        output["adapter_id"] = self.adapter.adapter_id
+
+        return output, False, duration_ms

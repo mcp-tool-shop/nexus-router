@@ -1,0 +1,59 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "nexus-router.run.response.v0.4",
+  "title": "nexus-router.run response v0.4",
+  "description": "Response schema with dispatch adapter support",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["summary", "run", "plan", "results", "provenance"],
+  "properties": {
+    "summary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["mode", "steps", "tools_used", "outputs_total", "outputs_applied", "outputs_skipped", "adapter_id"],
+      "properties": {
+        "mode": { "type": "string", "enum": ["dry_run", "apply"] },
+        "steps": { "type": "integer", "minimum": 0 },
+        "tools_used": { "type": "array", "items": { "type": "string" } },
+        "outputs_total": { "type": "integer", "minimum": 0 },
+        "outputs_applied": { "type": "integer", "minimum": 0 },
+        "outputs_skipped": { "type": "integer", "minimum": 0 },
+        "adapter_id": { "type": "string", "description": "ID of the dispatch adapter used" }
+      }
+    },
+    "run": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["run_id", "events_committed"],
+      "properties": {
+        "run_id": { "type": "string", "minLength": 1 },
+        "events_committed": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "plan": { "type": "array" },
+    "results": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["step_id", "status", "simulated", "output", "evidence"],
+        "properties": {
+          "step_id": { "type": "string" },
+          "status": { "type": "string", "enum": ["ok", "error", "skipped"] },
+          "simulated": { "type": "boolean" },
+          "output": { "type": "object" },
+          "evidence": { "type": "array" }
+        }
+      }
+    },
+    "provenance": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["artifacts", "records"],
+      "properties": {
+        "artifacts": { "type": "array" },
+        "records": { "type": "array" }
+      }
+    }
+  }
+}

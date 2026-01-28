@@ -4,8 +4,9 @@ from __future__ import annotations
 
 import json
 from importlib import resources
-from typing import Any, Dict, cast
+from typing import Any, Dict, Optional, cast
 
+from .dispatch import DispatchAdapter
 from .event_store import EventStore
 from .export import export_run as _export_impl
 from .import_ import import_bundle as _import_impl
@@ -38,7 +39,12 @@ def _load_schema(name: str) -> Dict[str, Any]:
     return _SCHEMAS[name]
 
 
-def run(request: Dict[str, Any], *, db_path: str = ":memory:") -> Dict[str, Any]:
+def run(
+    request: Dict[str, Any],
+    *,
+    db_path: str = ":memory:",
+    adapter: Optional[DispatchAdapter] = None,
+) -> Dict[str, Any]:
     """
     Execute a nexus-router run.
 
@@ -46,19 +52,23 @@ def run(request: Dict[str, Any], *, db_path: str = ":memory:") -> Dict[str, Any]
         request: Request dict conforming to nexus-router.run.request.v0.1 schema.
         db_path: SQLite database path. Default ":memory:" is ephemeral.
                  Pass a file path like "nexus-router.db" to persist runs.
+        adapter: Optional dispatch adapter for tool calls. If None, uses NullAdapter.
+                 In dry_run mode, adapter is never called (simulated output).
+                 In apply mode, adapter.call() is invoked for each step.
 
     Returns:
         Response dict conforming to nexus-router.run.response.v0.1 schema.
 
     Raises:
         jsonschema.ValidationError: If request doesn't match schema.
+        NexusBugError: Re-raised after recording if adapter raises bug error.
     """
     schema = _load_schema("nexus-router.run.request.v0.1.json")
     validate(request, schema)
 
     store = EventStore(db_path)
     try:
-        router = Router(store)
+        router = Router(store, adapter=adapter)
         return router.run(request)
     finally:
         store.close()

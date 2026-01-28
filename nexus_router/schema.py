@@ -4,7 +4,7 @@ import json
 from pathlib import Path
 from typing import Any, Dict, cast
 
-import jsonschema  # type: ignore[import-untyped]
+import jsonschema
 
 
 def load_schema(path: str | Path) -> Dict[str, Any]:
