@@ -9,7 +9,35 @@ description = "Event-sourced MCP router with provenance + integrity"
 readme = "README.md"
 requires-python = ">=3.9"
 license = {text = "MIT"}
+authors = [
+    {name = "mcp-tool-shop", email = "64996768+mcp-tool-shop@users.noreply.github.com"}
+]
+keywords = [
+    "mcp",
+    "router",
+    "event-sourcing",
+    "provenance",
+    "integrity",
+    "model-context-protocol"
+]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+]
 dependencies = ["jsonschema>=4.0.0"]
+
+[project.urls]
+Homepage = "https://github.com/mcp-tool-shop/nexus-router"
+Repository = "https://github.com/mcp-tool-shop/nexus-router"
+Issues = "https://github.com/mcp-tool-shop/nexus-router/issues"
+Changelog = "https://github.com/mcp-tool-shop/nexus-router/releases"
 
 [project.optional-dependencies]
 dev = ["pytest>=7", "ruff>=0.5.0", "mypy>=1.8.0"]
