@@ -5,6 +5,42 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.1] - 2026-01-27
+
+### Added
+
+- **Redaction hooks**: Prevent secrets from leaking into events/errors
+  - `default_redact_args()`: Redacts keys matching `token|secret|password|api_key|...`
+  - `default_redact_text()`: Redacts Bearer tokens, API keys, passwords in text
+  - `redact_args` and `redact_text` parameters on `SubprocessAdapter`
+  - `redact_args_for_event()` and `redact_text_for_event()` methods
+- **Separate output limits**: `max_stdout_chars` and `max_stderr_chars` (was `max_capture_chars`)
+- **Expanded error codes**:
+  - `PERMISSION_DENIED`: Command execution permission denied
+  - `CWD_NOT_FOUND`: Working directory doesn't exist
+  - `CWD_NOT_DIRECTORY`: Working directory is a file
+  - `ENV_INVALID`: Environment variable key or value not a string
+- **Exception details**: `NexusOperationalError.details` dict with contextual info
+  - `TIMEOUT` includes `timeout_s`
+  - `NONZERO_EXIT` includes `returncode` and `stderr_excerpt` (redacted)
+  - `INVALID_JSON_OUTPUT` includes `stdout_excerpt` (head/tail for large output)
+- **Temp file security**: chmod 0o600 on POSIX (best-effort)
+- **Cleanup retry**: One retry with configurable delay if temp file removal fails
+  - `last_cleanup_failed` property for diagnostics
+  - `cleanup_retry_delay_s` parameter (default 0.1s)
+- **Identifiable temp files**: Prefix `nexus-router-args-` for operator debugging
+
+### Changed
+
+- `max_capture_chars` renamed to `max_stdout_chars` (breaking change)
+- Temp file prefix changed from `nexus_args_` to `nexus-router-args-`
+
+### Notes
+
+- Redaction is applied to event payloads and error details, not to subprocess input
+- Pass `redact_args=lambda x: x` to disable arg redaction
+- 107 tests passing
+
 ## [0.5.0] - 2026-01-27
 
 ### Added
