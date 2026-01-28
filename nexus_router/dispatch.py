@@ -11,9 +11,16 @@ import stat
 import subprocess
 import tempfile
 import time
-from typing import Any, Callable, Dict, List, Optional, Protocol, Tuple
+from typing import Any, Callable, Dict, FrozenSet, List, Optional, Protocol, Tuple
 
 from .exceptions import NexusBugError, NexusOperationalError
+
+
+# Standard capability constants
+CAPABILITY_DRY_RUN = "dry_run"  # Adapter supports dry_run mode (simulated output)
+CAPABILITY_APPLY = "apply"  # Adapter supports apply mode (real execution)
+CAPABILITY_TIMEOUT = "timeout"  # Adapter enforces timeouts
+CAPABILITY_EXTERNAL = "external"  # Adapter calls external systems
 
 # Default pattern for detecting sensitive keys in args
 _SENSITIVE_KEY_PATTERN = re.compile(
@@ -75,11 +82,31 @@ class DispatchAdapter(Protocol):
 
     Adapters implement the transport layer for tool calls.
     The router decides what to call; the adapter decides how to call it.
+
+    Platform rules (v0.6+):
+    - Adapters must not mutate global state
+    - Adapters must be deterministic given args
+    - Adapters must not swallow bugs
+    - Adapters must declare capabilities
+    - Adapters must tolerate replayed calls being skipped
     """
 
     @property
     def adapter_id(self) -> str:
         """Unique identifier for this adapter instance."""
+        ...
+
+    @property
+    def capabilities(self) -> FrozenSet[str]:
+        """
+        Declared capabilities of this adapter.
+
+        Standard capabilities:
+        - "dry_run": Supports simulated execution
+        - "apply": Supports real execution
+        - "timeout": Enforces timeouts
+        - "external": Calls external systems
+        """
         ...
 
     def call(self, tool: str, method: str, args: Dict[str, Any]) -> Dict[str, Any]:
@@ -102,6 +129,155 @@ class DispatchAdapter(Protocol):
         ...
 
 
+class AdapterRegistry:
+    """
+    Registry of dispatch adapters.
+
+    Enables multiple adapters in one process without global state.
+    Provides adapter lookup by ID and capability-based selection.
+
+    Usage:
+        registry = AdapterRegistry()
+        registry.register(NullAdapter())
+        registry.register(SubprocessAdapter([...]))
+
+        run(request, db_path, adapters=registry)
+    """
+
+    def __init__(self, default_adapter_id: str = "null") -> None:
+        """
+        Initialize registry.
+
+        Args:
+            default_adapter_id: Adapter to use when none specified in request.
+        """
+        self._adapters: Dict[str, DispatchAdapter] = {}
+        self._default_adapter_id = default_adapter_id
+
+    @property
+    def default_adapter_id(self) -> str:
+        """The default adapter ID used when none specified."""
+        return self._default_adapter_id
+
+    def register(self, adapter: DispatchAdapter) -> None:
+        """
+        Register an adapter.
+
+        Args:
+            adapter: Adapter to register.
+
+        Raises:
+            ValueError: If adapter_id is already registered.
+        """
+        if adapter.adapter_id in self._adapters:
+            raise ValueError(f"Adapter already registered: {adapter.adapter_id}")
+        self._adapters[adapter.adapter_id] = adapter
+
+    def get(self, adapter_id: str) -> DispatchAdapter:
+        """
+        Get adapter by ID.
+
+        Args:
+            adapter_id: Adapter ID to look up.
+
+        Returns:
+            The adapter.
+
+        Raises:
+            KeyError: If adapter not found.
+        """
+        try:
+            return self._adapters[adapter_id]
+        except KeyError:
+            raise KeyError(f"Unknown adapter: {adapter_id}") from None
+
+    def get_default(self) -> DispatchAdapter:
+        """Get the default adapter."""
+        return self.get(self._default_adapter_id)
+
+    def list_ids(self) -> List[str]:
+        """List all registered adapter IDs (sorted)."""
+        return sorted(self._adapters.keys())
+
+    def list_adapters(self) -> List[Dict[str, Any]]:
+        """
+        List all registered adapters with metadata.
+
+        Returns:
+            List of dicts with adapter_id and capabilities.
+        """
+        return [
+            {
+                "adapter_id": adapter.adapter_id,
+                "capabilities": sorted(adapter.capabilities),
+            }
+            for adapter in sorted(
+                self._adapters.values(), key=lambda a: a.adapter_id
+            )
+        ]
+
+    def find_by_capability(self, capability: str) -> List[str]:
+        """
+        Find adapters with a specific capability.
+
+        Args:
+            capability: Capability to search for.
+
+        Returns:
+            List of adapter IDs that have the capability.
+        """
+        return [
+            adapter_id
+            for adapter_id, adapter in sorted(self._adapters.items())
+            if capability in adapter.capabilities
+        ]
+
+    def has_capability(self, adapter_id: str, capability: str) -> bool:
+        """
+        Check if an adapter has a specific capability.
+
+        Args:
+            adapter_id: Adapter to check.
+            capability: Capability to check for.
+
+        Returns:
+            True if adapter has capability.
+
+        Raises:
+            KeyError: If adapter not found.
+        """
+        return capability in self.get(adapter_id).capabilities
+
+    def require_capability(self, adapter_id: str, capability: str) -> None:
+        """
+        Assert that an adapter has a required capability.
+
+        Args:
+            adapter_id: Adapter to check.
+            capability: Required capability.
+
+        Raises:
+            KeyError: If adapter not found.
+            NexusOperationalError: If capability not present.
+        """
+        if not self.has_capability(adapter_id, capability):
+            raise NexusOperationalError(
+                f"Adapter '{adapter_id}' lacks required capability: {capability}",
+                error_code="CAPABILITY_MISSING",
+                details={
+                    "adapter_id": adapter_id,
+                    "required_capability": capability,
+                    "adapter_capabilities": sorted(self.get(adapter_id).capabilities),
+                },
+            )
+
+    def __len__(self) -> int:
+        return len(self._adapters)
+
+    def __contains__(self, adapter_id: str) -> bool:
+        return adapter_id in self._adapters
+
+
 class NullAdapter:
     """
     Adapter that returns deterministic placeholder outputs.
@@ -110,14 +286,21 @@ class NullAdapter:
     - dry_run mode (default)
     - Testing without external dependencies
     - Development/debugging
+
+    Capabilities: dry_run
     """
 
     def __init__(self, adapter_id: str = "null") -> None:
         self._adapter_id = adapter_id
+        self._capabilities: FrozenSet[str] = frozenset({CAPABILITY_DRY_RUN})
 
     @property
     def adapter_id(self) -> str:
         return self._adapter_id
+
+    @property
+    def capabilities(self) -> FrozenSet[str]:
+        return self._capabilities
 
     def call(self, tool: str, method: str, args: Dict[str, Any]) -> Dict[str, Any]:
         """Return a deterministic placeholder result."""
@@ -136,10 +319,19 @@ class FakeAdapter:
 
     Allows tests to specify exact outputs or errors for specific
     (tool, method) combinations.
+
+    Capabilities: dry_run, apply (for testing both modes)
     """
 
-    def __init__(self, adapter_id: str = "fake") -> None:
+    def __init__(
+        self,
+        adapter_id: str = "fake",
+        capabilities: Optional[FrozenSet[str]] = None,
+    ) -> None:
         self._adapter_id = adapter_id
+        self._capabilities: FrozenSet[str] = capabilities or frozenset(
+            {CAPABILITY_DRY_RUN, CAPABILITY_APPLY}
+        )
         self._responses: Dict[Tuple[str, str], Callable[..., Dict[str, Any]]] = {}
         self._default_response: Optional[Callable[..., Dict[str, Any]]] = None
         self._call_log: list[Dict[str, Any]] = []
@@ -147,6 +339,10 @@ class FakeAdapter:
     @property
     def adapter_id(self) -> str:
         return self._adapter_id
+
+    @property
+    def capabilities(self) -> FrozenSet[str]:
+        return self._capabilities
 
     @property
     def call_log(self) -> list[Dict[str, Any]]:
@@ -271,6 +467,8 @@ class SubprocessAdapter:
     - strict_stderr mode: treat any stderr on success as failure
     - args_digest in all error details for correlation
     - Enhanced timeout/JSON error details
+
+    Capabilities: apply, timeout, external
     """
 
     # Callable type aliases for redaction hooks
@@ -322,6 +520,9 @@ class SubprocessAdapter:
         self._max_stderr_chars = max_stderr_chars
         self._cleanup_retry_delay_s = cleanup_retry_delay_s
         self._strict_stderr = strict_stderr
+        self._capabilities: FrozenSet[str] = frozenset(
+            {CAPABILITY_APPLY, CAPABILITY_TIMEOUT, CAPABILITY_EXTERNAL}
+        )
 
         # Redaction hooks (default to built-in redactors)
         self._redact_args: SubprocessAdapter.RedactArgsFunc = (
@@ -351,6 +552,10 @@ class SubprocessAdapter:
     @property
     def adapter_id(self) -> str:
         return self._adapter_id
+
+    @property
+    def capabilities(self) -> FrozenSet[str]:
+        return self._capabilities
 
     @property
     def last_cleanup_failed(self) -> bool:

@@ -4,7 +4,12 @@ import time
 from typing import Any, Dict, List, Optional
 
 from . import events as E
-from .dispatch import DispatchAdapter, NullAdapter
+from .dispatch import (
+    CAPABILITY_APPLY,
+    AdapterRegistry,
+    DispatchAdapter,
+    NullAdapter,
+)
 from .event_store import EventStore
 from .exceptions import NexusBugError, NexusOperationalError
 from .policy import gate_apply
@@ -32,9 +37,31 @@ class Router:
         self,
         store: EventStore,
         adapter: Optional[DispatchAdapter] = None,
+        adapters: Optional[AdapterRegistry] = None,
     ) -> None:
+        """
+        Initialize router with event store and adapter configuration.
+
+        Args:
+            store: Event store for recording run events.
+            adapter: Single adapter (legacy pattern, deprecated in v0.6).
+            adapters: Adapter registry (v0.6+). Takes precedence over adapter.
+
+        Resolution order:
+        1. If adapters is provided, use registry.get_default()
+        2. Else if adapter is provided, use it directly
+        3. Else use NullAdapter()
+        """
         self.store = store
-        self.adapter: DispatchAdapter = adapter if adapter is not None else NullAdapter()
+        self._registry = adapters
+
+        # Resolve adapter: registry takes precedence
+        if adapters is not None:
+            self.adapter: DispatchAdapter = adapters.get_default()
+        elif adapter is not None:
+            self.adapter = adapter
+        else:
+            self.adapter = NullAdapter()
 
     def run(self, request: Dict[str, Any]) -> Dict[str, Any]:
         mode = request.get("mode", "dry_run")
@@ -249,6 +276,9 @@ class Router:
 
         Returns:
             (output, simulated, duration_ms)
+
+        Raises:
+            NexusOperationalError: If adapter lacks required capability for mode.
         """
         if mode == "dry_run":
             # dry_run: never call adapter, return simulated output
@@ -260,7 +290,19 @@ class Router:
             }
             return output, True, 0
 
-        # apply mode: gate first, then call adapter
+        # apply mode: enforce capability, then gate, then call adapter
+        if CAPABILITY_APPLY not in self.adapter.capabilities:
+            raise NexusOperationalError(
+                f"Adapter '{self.adapter.adapter_id}' lacks required capability "
+                f"'{CAPABILITY_APPLY}' for apply mode",
+                error_code="CAPABILITY_MISSING",
+                details={
+                    "adapter_id": self.adapter.adapter_id,
+                    "required_capability": CAPABILITY_APPLY,
+                    "adapter_capabilities": sorted(self.adapter.capabilities),
+                },
+            )
+
         gate_apply(policy)
 
         start_time = time.monotonic()

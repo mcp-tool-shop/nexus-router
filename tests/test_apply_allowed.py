@@ -1,11 +1,16 @@
 from nexus_router import events as E
+from nexus_router.dispatch import FakeAdapter
 from nexus_router.event_store import EventStore
 from nexus_router.router import Router
 
 
 def test_apply_allowed_succeeds():
+    """Apply mode succeeds with an adapter that has 'apply' capability."""
     store = EventStore(":memory:")
-    router = Router(store)
+    # FakeAdapter has 'apply' capability by default
+    adapter = FakeAdapter()
+    adapter.set_response("t", "m", {"result": "applied"})
+    router = Router(store, adapter=adapter)
 
     resp = router.run({
         "mode": "apply",

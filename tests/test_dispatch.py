@@ -400,8 +400,8 @@ class TestDefaultAdapter:
         assert resp["summary"]["adapter_id"] == "null"
         assert resp["results"][0]["output"]["simulated"] is True
 
-    def test_apply_with_null_adapter(self, tmp_path: Path) -> None:
-        """Apply mode with NullAdapter returns simulated-like output."""
+    def test_apply_with_null_adapter_fails_capability(self, tmp_path: Path) -> None:
+        """Apply mode with NullAdapter fails due to missing 'apply' capability (v0.6+)."""
         db_path = str(tmp_path / "test.db")
 
         resp = run(
@@ -418,10 +418,21 @@ class TestDefaultAdapter:
                 ],
             },
             db_path=db_path,
-            # No adapter = NullAdapter
+            # No adapter = NullAdapter (lacks 'apply' capability)
         )
 
+        # Run fails because NullAdapter doesn't have 'apply' capability
         assert resp["summary"]["adapter_id"] == "null"
-        # NullAdapter always returns simulated output
-        assert resp["results"][0]["output"]["simulated"] is True
-        assert resp["results"][0]["output"]["args_echo"] == {"x": 1}
+        assert resp["results"][0]["status"] == "error"
+        # Run should fail
+        from nexus_router.event_store import EventStore
+
+        store = EventStore(db_path)
+        run_id = resp["run"]["run_id"]
+        events = store.read_events(run_id)
+        store.close()
+
+        # Should have TOOL_CALL_FAILED with CAPABILITY_MISSING
+        failed_events = [e for e in events if e.type == "TOOL_CALL_FAILED"]
+        assert len(failed_events) == 1
+        assert failed_events[0].payload["error_code"] == "CAPABILITY_MISSING"

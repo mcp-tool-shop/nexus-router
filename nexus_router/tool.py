@@ -4,9 +4,9 @@ from __future__ import annotations
 
 import json
 from importlib import resources
-from typing import Any, Dict, Optional, cast
+from typing import Any, Dict, List, Optional, Union, cast
 
-from .dispatch import DispatchAdapter
+from .dispatch import AdapterRegistry, DispatchAdapter
 from .event_store import EventStore
 from .export import export_run as _export_impl
 from .import_ import import_bundle as _import_impl
@@ -21,6 +21,7 @@ TOOL_ID_INSPECT = "nexus-router.inspect"
 TOOL_ID_REPLAY = "nexus-router.replay"
 TOOL_ID_EXPORT = "nexus-router.export"
 TOOL_ID_IMPORT = "nexus-router.import"
+TOOL_ID_ADAPTERS = "nexus-router.adapters"
 
 # Legacy alias
 TOOL_ID = TOOL_ID_RUN
@@ -44,6 +45,7 @@ def run(
     *,
     db_path: str = ":memory:",
     adapter: Optional[DispatchAdapter] = None,
+    adapters: Optional[AdapterRegistry] = None,
 ) -> Dict[str, Any]:
     """
     Execute a nexus-router run.
@@ -55,6 +57,10 @@ def run(
         adapter: Optional dispatch adapter for tool calls. If None, uses NullAdapter.
                  In dry_run mode, adapter is never called (simulated output).
                  In apply mode, adapter.call() is invoked for each step.
+                 DEPRECATED in v0.6: Use adapters registry instead.
+        adapters: Optional adapter registry (v0.6+). Takes precedence over adapter.
+                  If provided, router uses registry.get_default() unless request
+                  specifies an adapter_id.
 
     Returns:
         Response dict conforming to nexus-router.run.response.v0.1 schema.
@@ -68,10 +74,44 @@ def run(
 
     store = EventStore(db_path)
     try:
-        router = Router(store, adapter=adapter)
+        router = Router(store, adapter=adapter, adapters=adapters)
         return router.run(request)
     finally:
         store.close()
+
+
+def list_adapters(
+    adapters: AdapterRegistry,
+    *,
+    capability: Optional[str] = None,
+) -> Dict[str, Any]:
+    """
+    List registered adapters (nexus-router.adapters tool).
+
+    Args:
+        adapters: Adapter registry to query.
+        capability: Optional capability filter.
+
+    Returns:
+        Response with adapter list.
+    """
+    if capability:
+        adapter_ids = adapters.find_by_capability(capability)
+        adapter_list = [
+            {
+                "adapter_id": aid,
+                "capabilities": sorted(adapters.get(aid).capabilities),
+            }
+            for aid in adapter_ids
+        ]
+    else:
+        adapter_list = adapters.list_adapters()
+
+    return {
+        "adapters": adapter_list,
+        "default_adapter_id": adapters.default_adapter_id,
+        "total": len(adapter_list),
+    }
 
 
 def inspect(request: Dict[str, Any]) -> Dict[str, Any]:
