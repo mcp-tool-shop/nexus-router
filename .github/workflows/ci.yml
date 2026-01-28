@@ -35,3 +35,22 @@ jobs:
 
       - name: Type check with mypy
         run: mypy nexus_router
+
+  docs-check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          pip install -e ".[dev]"
+          # Install HTTP adapter for docs generation
+          pip install -e ../nexus-router-adapter-http 2>/dev/null || echo "HTTP adapter not in workspace, trying pip"
+          pip install nexus-router-adapter-http 2>/dev/null || echo "HTTP adapter not published yet"
+
+      - name: Check generated docs
+        run: python scripts/check_generated_docs.py

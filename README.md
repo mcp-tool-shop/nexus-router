@@ -2,6 +2,17 @@
 
 Event-sourced MCP router with provenance + integrity.
 
+[![CI](https://github.com/mcp-tool-shop/nexus-router/actions/workflows/ci.yml/badge.svg)](https://github.com/mcp-tool-shop/nexus-router/actions/workflows/ci.yml)
+
+## Platform Philosophy
+
+- **Router is the law** — all execution flows through the event log
+- **Adapters are citizens** — they follow the contract or they don't run
+- **Contracts over conventions** — stability guarantees are versioned and enforced
+- **Replay before execution** — every run can be verified after the fact
+- **Validation before trust** — `validate_adapter()` runs before adapters touch production
+- **Self-describing ecosystem** — manifests generate docs, not the other way around
+
 ## Brand + Tool ID
 
 - Brand/repo: `nexus-router`
@@ -123,18 +134,95 @@ Error codes: `TIMEOUT`, `NONZERO_EXIT`, `INVALID_JSON_OUTPUT`, `COMMAND_NOT_FOUN
 
 ## What this version is (and isn't)
 
-v0.5.0 is a production-ready event-sourced router with real tool dispatch:
+v1.0 is a **platform-grade** event-sourced router with a complete adapter ecosystem:
 
+**Core Router:**
 - Event log with monotonic sequencing
 - Policy gating (`allow_apply`, `max_steps`)
 - Schema validation on all requests
 - Provenance bundle with SHA256 digest
 - Export/import with integrity verification
 - Replay with invariant checking
-- Fixture-driven planning (`plan_override`)
-- **SubprocessAdapter for external tool execution**
 - Error taxonomy: operational vs bug errors
+
+**Adapter Ecosystem:**
+- Formal adapter contract ([ADAPTER_SPEC.md](ADAPTER_SPEC.md))
+- `validate_adapter()` — compliance lint tool
+- `inspect_adapter()` — developer experience front door
+- `generate_adapter_docs()` — auto-generated documentation
+- CI template with validation gate
+- Adapter template for 2-minute onboarding
 
 ## Concurrency
 
 Single-writer per run. Concurrent writers to the same run_id are unsupported.
+
+## Adapter Ecosystem (v0.8+)
+
+Create custom adapters to dispatch tool calls to any backend.
+
+### Official Adapters
+
+| Adapter | Description | Install |
+|---------|-------------|---------|
+| [nexus-router-adapter-http](https://github.com/mcp-tool-shop/nexus-router-adapter-http) | HTTP/REST dispatch | `pip install nexus-router-adapter-http` |
+| [nexus-router-adapter-stdout](https://github.com/mcp-tool-shop/nexus-router-adapter-stdout) | Debug logging | `pip install nexus-router-adapter-stdout` |
+
+See [ADAPTERS.generated.md](ADAPTERS.generated.md) for full documentation.
+
+### Creating Adapters
+
+Use the [adapter template](https://github.com/mcp-tool-shop/nexus-router-adapter-template) to create new adapters in 2 minutes:
+
+```bash
+# Fork the template, then:
+pip install -e ".[dev]"
+pytest -v  # Validates against nexus-router spec
+```
+
+See [ADAPTER_SPEC.md](ADAPTER_SPEC.md) for the full contract.
+
+### Validation Tools
+
+```python
+from nexus_router.plugins import inspect_adapter
+
+result = inspect_adapter(
+    "nexus_router_adapter_http:create_adapter",
+    config={"base_url": "https://example.com"},
+)
+print(result.render())  # Human-readable validation report
+```
+
+## Versioning & Stability
+
+### v1.x Guarantees
+
+The following are **stable in v1.x** (breaking changes only in v2.0):
+
+| Contract | Scope |
+|----------|-------|
+| Validation check IDs | `LOAD_OK`, `PROTOCOL_FIELDS`, `MANIFEST_*`, etc. |
+| Manifest schema | `schema_version: 1` |
+| Adapter factory signature | `create_adapter(*, adapter_id=None, **config)` |
+| Capability set | `dry_run`, `apply`, `timeout`, `external` (additive only) |
+| Event types | Core event payloads (additive only) |
+
+### Deprecation Policy
+
+- Deprecations announced in minor versions with warnings
+- Removed in next major version
+- Upgrade notes provided in release changelog
+
+### Adapter Compatibility
+
+Adapters declare supported router versions in their manifest:
+
+```python
+ADAPTER_MANIFEST = {
+    "supported_router_versions": ">=1.0,<2.0",
+    ...
+}
+```
+
+The `validate_adapter()` tool checks compatibility.

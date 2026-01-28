@@ -252,6 +252,76 @@ Adapters MUST NOT:
 3. Bypass capability enforcement
 4. Hold resources after `call()` returns
 
+## Plugin Loading (v0.8+)
+
+Adapter packages can be loaded dynamically using `load_adapter()`:
+
+```python
+from nexus_router.plugins import load_adapter
+from nexus_router.dispatch import AdapterRegistry
+
+# Load adapter from installed package
+adapter = load_adapter(
+    "nexus_router_adapter_http:create_adapter",  # module:function
+    adapter_id="my-http",
+    base_url="https://api.example.com",
+    timeout_s=30,
+)
+
+# Register into explicit registry
+registry = AdapterRegistry(default_adapter_id="my-http")
+registry.register(adapter)
+```
+
+### Factory Reference Format
+
+The `factory_ref` parameter uses the format `module.path:function_name`:
+
+```
+nexus_router_adapter_http:create_adapter
+       ↑                         ↑
+   module path              function name
+```
+
+### Adapter Package Contract
+
+Adapter packages MUST:
+1. Expose a factory function: `create_adapter(*, adapter_id: str | None = None, **config) -> DispatchAdapter`
+2. Return a valid `DispatchAdapter` instance
+3. Declare capabilities from the standard set (no inventing new capabilities)
+4. Have no import side effects
+5. Not modify global state
+
+See `ADAPTER_SPEC.md` for the full contract specification.
+
+### Error Handling
+
+```python
+from nexus_router.plugins import load_adapter, AdapterLoadError
+
+try:
+    adapter = load_adapter("my_pkg:create_adapter", base_url="...")
+except AdapterLoadError as e:
+    print(f"Failed to load: {e}")
+    print(f"Factory ref: {e.factory_ref}")
+    print(f"Cause: {e.cause}")
+```
+
+Error codes:
+- `ADAPTER_LOAD_FAILED` - Module import failed, function not found, factory raised, etc.
+
+### Reference Implementation
+
+See `nexus-router-adapter-http` for a complete reference implementation:
+- https://github.com/mcp-tool-shop/nexus-router-adapter-http
+
+### Package Naming Convention
+
+```
+nexus-router-adapter-{kind}     # Package name (PyPI)
+nexus_router_adapter_{kind}     # Module name (Python)
+```
+
 ## Directory Structure
 
 ```
@@ -259,6 +329,7 @@ nexus_router/
 ├── tool.py          # Public API: run(), inspect(), replay(), export(), import_bundle()
 ├── router.py        # Core orchestration logic
 ├── dispatch.py      # Adapter protocol, registry, built-in adapters
+├── plugins.py       # Plugin loading: load_adapter(), get_adapter_metadata()
 ├── event_store.py   # SQLite-backed event sourcing
 ├── events.py        # Event type constants
 ├── exceptions.py    # Exception taxonomy
@@ -283,3 +354,5 @@ nexus_router/
 | 0.6 | **Platform**: AdapterRegistry, capabilities, enforcement |
 | 0.6.1 | Platform invariants: adapter_capabilities in events, adapter_kind, deprecation warning |
 | 0.7 | **Declarative Selection**: dispatch.adapter_id, require_capabilities, DISPATCH_SELECTED event |
+| 0.8 | **Adapter Packages**: load_adapter(), ADAPTER_SPEC.md, reference HTTP adapter |
+| 0.9 | **Adapter Lint**: validate_adapter() tool, STANDARD_CAPABILITIES, badge template |

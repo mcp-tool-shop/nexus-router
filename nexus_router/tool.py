@@ -11,6 +11,9 @@ from .event_store import EventStore
 from .export import export_run as _export_impl
 from .import_ import import_bundle as _import_impl
 from .inspect import inspect as _inspect_impl
+from .docs import generate_adapter_docs as _generate_docs_impl
+from .plugins import inspect_adapter as _inspect_adapter_impl
+from .plugins import validate_adapter as _validate_adapter_impl
 from .replay import replay as _replay_impl
 from .router import Router
 from .schema import validate
@@ -22,6 +25,9 @@ TOOL_ID_REPLAY = "nexus-router.replay"
 TOOL_ID_EXPORT = "nexus-router.export"
 TOOL_ID_IMPORT = "nexus-router.import"
 TOOL_ID_ADAPTERS = "nexus-router.adapters"
+TOOL_ID_VALIDATE_ADAPTER = "nexus-router.validate_adapter"
+TOOL_ID_INSPECT_ADAPTER = "nexus-router.inspect_adapter"
+TOOL_ID_GENERATE_DOCS = "nexus-router.generate_adapter_docs"
 
 # Legacy alias
 TOOL_ID = TOOL_ID_RUN
@@ -220,3 +226,133 @@ def import_bundle(request: Dict[str, Any]) -> Dict[str, Any]:
         verify_digest=request.get("verify_digest", True),
         replay_after_import=request.get("replay_after_import", True),
     )
+
+
+def validate_adapter(request: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Validate an adapter package without dispatch (adapter lint tool).
+
+    This is a read-only tool that checks adapter compliance with ADAPTER_SPEC.md.
+    It loads the adapter but does not execute any calls.
+
+    Args:
+        request: Request dict with:
+            factory_ref (required): Module and function reference ("module:function")
+            config (optional): Configuration to pass to factory
+            strict (optional): If True, unknown capabilities cause failure. Default True.
+
+    Returns:
+        Response dict with:
+            ok: boolean - True if all checks pass
+            metadata: adapter_id, adapter_kind, capabilities (if loaded successfully)
+            checks: array of {id, status, message}
+            error: string (if load failed)
+
+    Example:
+        >>> validate_adapter({
+        ...     "factory_ref": "nexus_router_adapter_http:create_adapter",
+        ...     "config": {"base_url": "https://example.com"},
+        ... })
+        {'ok': True, 'metadata': {...}, 'checks': [...]}
+
+    Checks performed:
+        LOAD_OK: load_adapter() succeeds
+        PROTOCOL_FIELDS: adapter_id, adapter_kind, capabilities, call exist
+        ADAPTER_ID_FORMAT: adapter_id is non-empty string
+        ADAPTER_KIND_FORMAT: adapter_kind is non-empty string
+        CAPABILITIES_TYPE: capabilities is a set-like of strings
+        CAPABILITIES_VALID: only standard capabilities declared (strict mode)
+    """
+    factory_ref = request["factory_ref"]
+    config = request.get("config", {})
+    strict = request.get("strict", True)
+
+    result = _validate_adapter_impl(factory_ref, config, strict=strict)
+    return result.to_dict()
+
+
+def inspect_adapter(request: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Inspect an adapter package with human-friendly output.
+
+    This is a read-only tool that validates an adapter and extracts
+    metadata, config schema, and error codes for display.
+
+    Args:
+        request: Request dict with:
+            factory_ref (required): Module and function reference ("module:function")
+            config (optional): Configuration to pass to factory
+            strict (optional): If True, unknown capabilities cause failure. Default True.
+            render (optional): If True, include rendered text in response. Default False.
+
+    Returns:
+        Response dict with:
+            ok: boolean - True if validation passes
+            adapter_id: string - adapter identifier
+            adapter_kind: string - adapter type
+            capabilities: list[string] - declared capabilities
+            supported_router_versions: string - PEP 440 version specifier (if manifest)
+            config_params: list of config parameter info (if manifest)
+            error_codes: list[string] - error codes adapter may raise (if manifest)
+            manifest: dict - raw manifest (if present)
+            validation: dict - validation result
+            rendered: string - human-readable report (if render=True)
+
+    Example:
+        >>> inspect_adapter({
+        ...     "factory_ref": "nexus_router_adapter_http:create_adapter",
+        ...     "config": {"base_url": "https://example.com"},
+        ...     "render": True,
+        ... })
+        {'ok': True, 'adapter_id': 'http:example.com', 'rendered': '...', ...}
+    """
+    factory_ref = request["factory_ref"]
+    config = request.get("config", {})
+    strict = request.get("strict", True)
+    render = request.get("render", False)
+
+    result = _inspect_adapter_impl(factory_ref, config, strict=strict)
+    response = result.to_dict()
+
+    if render:
+        response["rendered"] = result.render()
+
+    return response
+
+
+def generate_adapter_docs(request: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    """
+    Generate markdown documentation from adapter manifests.
+
+    This is a read-only tool that inspects known adapters and generates
+    consistent documentation from their manifests.
+
+    Args:
+        request: Optional request dict with:
+            title (optional): Title for the adapters section. Default "Official Adapters".
+            include_header (optional): Include file header. Default True.
+            include_footer (optional): Include footer. Default True.
+
+    Returns:
+        Response dict with:
+            markdown: string - generated markdown content
+            adapters_ok: int - number of successfully documented adapters
+            adapters_failed: int - number of failed adapters
+            errors: list[string] - error messages for failed adapters
+
+    Example:
+        >>> generate_adapter_docs()
+        {'markdown': '...', 'adapters_ok': 1, 'adapters_failed': 0, 'errors': []}
+    """
+    request = request or {}
+    title = request.get("title", "Official Adapters")
+    include_header = request.get("include_header", True)
+    include_footer = request.get("include_footer", True)
+
+    result = _generate_docs_impl(
+        title=title,
+        include_header=include_header,
+        include_footer=include_footer,
+    )
+
+    return result.to_dict()
