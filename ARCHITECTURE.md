@@ -117,12 +117,74 @@ result = list_adapters(registry, capability="apply")
 # Filter by capability
 ```
 
+## Declarative Adapter Selection (v0.7+)
+
+Requests can explicitly select which adapter to use and require specific capabilities:
+
+```python
+# Request schema with dispatch section
+request = {
+    "goal": "process files",
+    "mode": "apply",
+    "dispatch": {
+        "adapter_id": "subprocess:python:abc123",  # Explicit adapter
+        "require_capabilities": ["timeout", "external"]  # Required capabilities
+    },
+    "plan_override": [...]
+}
+```
+
+### Selection Order
+
+1. If `dispatch.adapter_id` is specified → use that adapter (selection_source="request")
+2. Else → use `registry.get_default()` (selection_source="default")
+
+### Capability Enforcement
+
+- If `dispatch.require_capabilities` is specified, all listed capabilities must be present
+- `apply` mode always requires `CAPABILITY_APPLY` (implicit)
+- Missing capability → `CAPABILITY_MISSING` error → run fails before any steps execute
+
+### New Event Type
+
+`DISPATCH_SELECTED` event is emitted after `RUN_STARTED`:
+
+```json
+{
+  "adapter_id": "subprocess:python:abc123",
+  "adapter_kind": "subprocess",
+  "capabilities": ["apply", "timeout", "external"],
+  "selection_source": "request"
+}
+```
+
+### Error Codes
+
+| Code | Meaning |
+|------|---------|
+| `UNKNOWN_ADAPTER` | Requested adapter_id not found in registry |
+| `CAPABILITY_MISSING` | Adapter lacks a required capability |
+
+### Response Dispatch Section
+
+Every response includes a `dispatch` section:
+
+```json
+{
+  "dispatch": {
+    "adapter_id": "subprocess:python:abc123",
+    "adapter_kind": "subprocess",
+    "selection_source": "request"
+  }
+}
+```
+
 ## Event Sourcing
 
 Every run produces an immutable event stream:
 
 ```
-RUN_STARTED → PLAN_CREATED → STEP_STARTED → TOOL_CALL_REQUESTED →
+RUN_STARTED → DISPATCH_SELECTED → PLAN_CREATED → STEP_STARTED → TOOL_CALL_REQUESTED →
   TOOL_CALL_SUCCEEDED|FAILED → STEP_COMPLETED → ... → RUN_COMPLETED|FAILED
 ```
 
@@ -148,9 +210,10 @@ These invariants are **enforced** and **replay-visible**:
    - Returns the adapter matching `default_adapter_id` set at registry construction
    - Raises `KeyError` if that adapter is not registered
 
-4. **Deprecation path for `adapter` parameter**:
-   - If both `adapter` and `adapters` provided, `adapters` wins (with `DeprecationWarning`)
-   - In v0.7+, providing both will raise `ValueError`
+4. **Legacy `adapter` parameter** (v0.7+):
+   - If both `adapter` and `adapters` provided, `ValueError` is raised
+   - Single `adapter` is wrapped into a temporary registry (for backwards compatibility)
+   - Prefer using `adapters` registry for new code
 
 ### Replay & Validation
 
@@ -219,3 +282,4 @@ nexus_router/
 | 0.5 | Hardening: redaction, output limits, error codes |
 | 0.6 | **Platform**: AdapterRegistry, capabilities, enforcement |
 | 0.6.1 | Platform invariants: adapter_capabilities in events, adapter_kind, deprecation warning |
+| 0.7 | **Declarative Selection**: dispatch.adapter_id, require_capabilities, DISPATCH_SELECTED event |

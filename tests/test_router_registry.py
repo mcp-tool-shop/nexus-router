@@ -47,8 +47,10 @@ class TestRouterWithRegistry:
         assert resp["summary"]["adapter_id"] == "fake"
         assert resp["results"][0]["status"] == "ok"
 
-    def test_registry_takes_precedence_over_adapter(self) -> None:
-        """When both adapter and adapters are provided, registry wins."""
+    def test_dual_adapter_raises_value_error(self) -> None:
+        """Providing both adapter and adapters raises ValueError (v0.7+)."""
+        import pytest
+
         store = EventStore(":memory:")
 
         legacy_adapter = FakeAdapter(adapter_id="legacy")
@@ -56,10 +58,8 @@ class TestRouterWithRegistry:
         registry_adapter = FakeAdapter(adapter_id="registry-default")
         registry.register(registry_adapter)
 
-        router = Router(store, adapter=legacy_adapter, adapters=registry)
-
-        # Router should use registry's default, not legacy adapter
-        assert router.adapter.adapter_id == "registry-default"
+        with pytest.raises(ValueError, match="Cannot provide both"):
+            Router(store, adapter=legacy_adapter, adapters=registry)
 
     def test_dry_run_with_null_adapter_in_registry(self) -> None:
         """dry_run mode works with NullAdapter in registry."""
@@ -260,25 +260,18 @@ class TestPlatformInvariants:
             CAPABILITY_APPLY,
         }
 
-    def test_dual_adapter_deprecation_warning(self) -> None:
-        """Providing both adapter and adapters emits DeprecationWarning."""
+    def test_dual_adapter_raises_value_error_v07(self) -> None:
+        """Providing both adapter and adapters raises ValueError (v0.7+)."""
+        import pytest
+
         store = EventStore(":memory:")
 
         legacy = FakeAdapter(adapter_id="legacy")
         registry = AdapterRegistry(default_adapter_id="registry")
         registry.register(FakeAdapter(adapter_id="registry"))
 
-        with warnings.catch_warnings(record=True) as w:
-            warnings.simplefilter("always")
-            router = Router(store, adapter=legacy, adapters=registry)
-
-            assert len(w) == 1
-            assert issubclass(w[0].category, DeprecationWarning)
-            assert "adapter" in str(w[0].message)
-            assert "v0.7" in str(w[0].message)
-
-        # Registry still takes precedence
-        assert router.adapter.adapter_id == "registry"
+        with pytest.raises(ValueError, match="Cannot provide both"):
+            Router(store, adapter=legacy, adapters=registry)
 
     def test_list_adapters_includes_adapter_kind(self) -> None:
         """list_adapters response includes adapter_kind for each adapter."""

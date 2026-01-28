@@ -51,25 +51,25 @@ def run(
     Execute a nexus-router run.
 
     Args:
-        request: Request dict conforming to nexus-router.run.request.v0.1 schema.
+        request: Request dict conforming to nexus-router.run.request.v0.7 schema.
         db_path: SQLite database path. Default ":memory:" is ephemeral.
                  Pass a file path like "nexus-router.db" to persist runs.
         adapter: Optional dispatch adapter for tool calls. If None, uses NullAdapter.
                  In dry_run mode, adapter is never called (simulated output).
                  In apply mode, adapter.call() is invoked for each step.
-                 DEPRECATED in v0.6: Use adapters registry instead.
-        adapters: Optional adapter registry (v0.6+). Takes precedence over adapter.
-                  If provided, router uses registry.get_default() unless request
-                  specifies an adapter_id.
+                 DEPRECATED: Use adapters registry instead.
+        adapters: Adapter registry for tool dispatch.
+                  Supports declarative adapter selection via request.dispatch.adapter_id.
 
     Returns:
-        Response dict conforming to nexus-router.run.response.v0.1 schema.
+        Response dict conforming to nexus-router.run.response.v0.7 schema.
 
     Raises:
         jsonschema.ValidationError: If request doesn't match schema.
+        ValueError: If both adapter and adapters are provided.
         NexusBugError: Re-raised after recording if adapter raises bug error.
     """
-    schema = _load_schema("nexus-router.run.request.v0.1.json")
+    schema = _load_schema("nexus-router.run.request.v0.7.json")
     validate(request, schema)
 
     store = EventStore(db_path)

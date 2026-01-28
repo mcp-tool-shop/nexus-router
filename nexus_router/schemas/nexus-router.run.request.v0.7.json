@@ -1,0 +1,84 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "nexus-router.run.request.v0.7",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "goal": { "type": "string", "minLength": 1 },
+    "mode": { "type": "string", "enum": ["dry_run", "apply"] },
+    "dispatch": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "adapter_id": { "type": "string", "minLength": 1 },
+        "require_capabilities": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 },
+          "uniqueItems": true
+        }
+      }
+    },
+    "context": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "artifacts": {
+          "type": "array",
+          "default": [],
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["artifact_id", "media_type"],
+            "properties": {
+              "artifact_id": { "type": "string", "minLength": 1 },
+              "media_type": { "type": "string", "minLength": 1 },
+              "locator": { "type": "string" },
+              "digest": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["alg", "value"],
+                "properties": {
+                  "alg": { "type": "string", "enum": ["sha256"] },
+                  "value": { "type": "string", "minLength": 1 }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "policy": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "allow_apply": { "type": "boolean" },
+        "max_steps": { "type": "integer", "minimum": 1 }
+      }
+    },
+    "plan_override": {
+      "type": "array",
+      "default": [],
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["step_id", "intent", "call"],
+        "properties": {
+          "step_id": { "type": "string", "minLength": 1 },
+          "intent": { "type": "string" },
+          "call": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["tool", "method", "args"],
+            "properties": {
+              "tool": { "type": "string", "minLength": 1 },
+              "method": { "type": "string", "minLength": 1 },
+              "args": { "type": "object" }
+            }
+          },
+          "expected_output_pointer": { "type": "string" }
+        }
+      }
+    }
+  },
+  "required": ["goal"]
+}

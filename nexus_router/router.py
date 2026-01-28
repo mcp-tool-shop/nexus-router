@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import time
-import warnings
 from typing import Any, Dict, List, Optional
 
 from . import events as E
@@ -45,48 +44,83 @@ class Router:
 
         Args:
             store: Event store for recording run events.
-            adapter: Single adapter (legacy pattern, deprecated in v0.6).
-            adapters: Adapter registry (v0.6+). Takes precedence over adapter.
+            adapter: Single adapter (legacy pattern, removed in v0.7).
+            adapters: Adapter registry (v0.6+). Required for declarative selection.
+
+        Raises:
+            ValueError: If both adapter and adapters are provided (v0.7+).
 
         Resolution order:
-        1. If adapters is provided, use registry.get_default()
-        2. Else if adapter is provided, use it directly
-        3. Else use NullAdapter()
-
-        Warnings:
-            DeprecationWarning: If both adapter and adapters are provided.
-                In v0.7+, this will raise ValueError.
+        1. If adapters is provided, use registry (request can select adapter)
+        2. Else if adapter is provided, wrap into temporary registry
+        3. Else use default registry with NullAdapter only
         """
         self.store = store
-        self._registry = adapters
-        self._dual_adapter_warning_emitted = False
 
-        # Warn if both adapter and adapters provided (deprecated in v0.6, error in v0.7)
+        # v0.7: Error if both adapter and adapters provided
         if adapter is not None and adapters is not None:
-            warnings.warn(
-                "Both 'adapter' and 'adapters' provided. "
-                "The 'adapter' parameter is deprecated; 'adapters' takes precedence. "
-                "In v0.7+, providing both will raise ValueError.",
-                DeprecationWarning,
-                stacklevel=2,
+            raise ValueError(
+                "Cannot provide both 'adapter' and 'adapters'. "
+                "The 'adapter' parameter is deprecated. Use 'adapters' registry instead."
             )
-            self._dual_adapter_warning_emitted = True
 
-        # Resolve adapter: registry takes precedence
+        # Build registry based on what was provided
         if adapters is not None:
-            self.adapter: DispatchAdapter = adapters.get_default()
+            self._registry = adapters
         elif adapter is not None:
-            self.adapter = adapter
+            # Legacy: wrap single adapter into temporary registry
+            self._registry = AdapterRegistry(default_adapter_id=adapter.adapter_id)
+            self._registry.register(adapter)
         else:
-            self.adapter = NullAdapter()
+            # Default: NullAdapter only
+            self._registry = AdapterRegistry(default_adapter_id="null")
+            self._registry.register(NullAdapter())
+
+        # Default adapter (may be overridden by request dispatch)
+        self.adapter: DispatchAdapter = self._registry.get_default()
 
     def run(self, request: Dict[str, Any]) -> Dict[str, Any]:
         mode = request.get("mode", "dry_run")
         goal = request["goal"]
         policy = request.get("policy", {})
+        dispatch_config = request.get("dispatch", {})
 
         run_id = self.store.create_run(mode=mode, goal=goal)
         self.store.append(run_id, E.RUN_STARTED, {"mode": mode, "goal": goal})
+
+        # v0.7: Declarative adapter selection
+        try:
+            adapter, selection_source = self._select_adapter(dispatch_config)
+        except NexusOperationalError as ex:
+            # Adapter selection failed (unknown adapter or capability missing)
+            self.store.append(
+                run_id,
+                E.RUN_FAILED,
+                {
+                    "reason": "dispatch_selection_failed",
+                    "error_code": ex.error_code,
+                    "message": str(ex),
+                    "details": ex.details,
+                },
+            )
+            self.store.set_run_status(run_id, "FAILED")
+            return self._build_failed_response(
+                run_id=run_id,
+                mode=mode,
+                error_code=ex.error_code,
+                error_message=str(ex),
+            )
+
+        self.adapter = adapter
+
+        # Emit DISPATCH_SELECTED event (v0.7+)
+        dispatch_info = {
+            "adapter_id": adapter.adapter_id,
+            "adapter_kind": adapter.adapter_kind,
+            "capabilities": sorted(adapter.capabilities),
+            "selection_source": selection_source,
+        }
+        self.store.append(run_id, E.DISPATCH_SELECTED, dispatch_info)
 
         plan = create_plan(request)
         self.store.append(run_id, E.PLAN_CREATED, {"plan": plan})
@@ -274,10 +308,103 @@ class Router:
                 "outputs_skipped": skipped_count,
                 "adapter_id": self.adapter.adapter_id,
             },
+            "dispatch": {
+                "adapter_id": self.adapter.adapter_id,
+                "adapter_kind": self.adapter.adapter_kind,
+                "selection_source": selection_source,
+            },
             "run": {"run_id": run_id, "events_committed": events_committed},
             "plan": plan,
             "results": results,
             "provenance": prov_bundle.get("provenance", {"artifacts": [], "records": []}),
+        }
+
+    def _select_adapter(
+        self, dispatch_config: Dict[str, Any]
+    ) -> tuple[DispatchAdapter, str]:
+        """
+        Select adapter based on dispatch configuration.
+
+        Args:
+            dispatch_config: The dispatch section from request (may be empty).
+
+        Returns:
+            (adapter, selection_source) where selection_source is "request" or "default".
+
+        Raises:
+            NexusOperationalError: If adapter_id not found or capability missing.
+        """
+        adapter_id = dispatch_config.get("adapter_id")
+        require_capabilities = dispatch_config.get("require_capabilities", [])
+
+        # Determine adapter
+        if adapter_id is not None:
+            # Request explicitly selected an adapter
+            try:
+                adapter = self._registry.get(adapter_id)
+            except KeyError:
+                raise NexusOperationalError(
+                    f"Unknown adapter: '{adapter_id}'",
+                    error_code="UNKNOWN_ADAPTER",
+                    details={
+                        "requested_adapter_id": adapter_id,
+                        "available_adapters": self._registry.list_ids(),
+                    },
+                )
+            selection_source = "request"
+        else:
+            # Use default
+            adapter = self._registry.get_default()
+            selection_source = "default"
+
+        # Enforce required capabilities
+        for cap in require_capabilities:
+            if cap not in adapter.capabilities:
+                raise NexusOperationalError(
+                    f"Adapter '{adapter.adapter_id}' lacks required capability: {cap}",
+                    error_code="CAPABILITY_MISSING",
+                    details={
+                        "adapter_id": adapter.adapter_id,
+                        "required_capability": cap,
+                        "adapter_capabilities": sorted(adapter.capabilities),
+                    },
+                )
+
+        return adapter, selection_source
+
+    def _build_failed_response(
+        self,
+        *,
+        run_id: str,
+        mode: str,
+        error_code: str,
+        error_message: str,
+    ) -> Dict[str, Any]:
+        """Build a response for a run that failed before execution."""
+        events_committed = len(self.store.read_events(run_id))
+        return {
+            "summary": {
+                "mode": mode,
+                "steps": 0,
+                "tools_used": [],
+                "outputs_total": 0,
+                "outputs_applied": 0,
+                "outputs_skipped": 0,
+                "adapter_id": "none",
+            },
+            "dispatch": {
+                "adapter_id": "none",
+                "adapter_kind": "none",
+                "selection_source": "failed",
+            },
+            "run": {"run_id": run_id, "events_committed": events_committed},
+            "plan": [],
+            "results": [],
+            "provenance": {"artifacts": [], "records": []},
+            "error": {
+                "code": error_code,
+                "message": error_message,
+            },
         }
 
     def _dispatch_call(
