@@ -106,7 +106,7 @@ class TestAdapterRegistryListing:
         assert set(ids) == {"a", "b", "c"}
 
     def test_list_adapters(self) -> None:
-        """list_adapters returns adapter info dicts."""
+        """list_adapters returns adapter info dicts with kind."""
         registry = AdapterRegistry()
         registry.register(FakeAdapter(adapter_id="fake1"))
         registry.register(NullAdapter(adapter_id="null1"))
@@ -117,11 +117,15 @@ class TestAdapterRegistryListing:
         adapter_map = {a["adapter_id"]: a for a in adapters}
         assert "fake1" in adapter_map
         assert "null1" in adapter_map
+        # Check capabilities
         assert set(adapter_map["fake1"]["capabilities"]) == {
             CAPABILITY_DRY_RUN,
             CAPABILITY_APPLY,
         }
         assert set(adapter_map["null1"]["capabilities"]) == {CAPABILITY_DRY_RUN}
+        # Check adapter_kind (v0.6.1+)
+        assert adapter_map["fake1"]["adapter_kind"] == "fake"
+        assert adapter_map["null1"]["adapter_kind"] == "null"
 
     def test_find_by_capability(self) -> None:
         """find_by_capability returns adapters with specific capability."""

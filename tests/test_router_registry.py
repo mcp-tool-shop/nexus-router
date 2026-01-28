@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import warnings
+
 from nexus_router import events as E
 from nexus_router.dispatch import (
     CAPABILITY_APPLY,
@@ -212,3 +214,93 @@ class TestToolRunWithRegistry:
 
         assert resp["summary"]["adapter_id"] == "fake"
         assert resp["results"][0]["output"]["done"] is True
+
+
+# =============================================================================
+# v0.6.1 Platform Invariants Tests
+# =============================================================================
+
+
+class TestPlatformInvariants:
+    """Test platform invariants introduced in v0.6.1."""
+
+    def test_tool_call_requested_includes_adapter_capabilities(self) -> None:
+        """TOOL_CALL_REQUESTED event includes adapter_capabilities snapshot."""
+        store = EventStore(":memory:")
+        adapter = FakeAdapter(adapter_id="test-adapter")
+        adapter.set_response("t", "m", {"result": "ok"})
+        router = Router(store, adapter=adapter)
+
+        resp = router.run(
+            {
+                "mode": "apply",
+                "goal": "test invariants",
+                "policy": {"allow_apply": True},
+                "plan_override": [
+                    {
+                        "step_id": "s1",
+                        "intent": "test",
+                        "call": {"tool": "t", "method": "m", "args": {}},
+                    }
+                ],
+            }
+        )
+
+        run_id = resp["run"]["run_id"]
+        events = store.read_events(run_id)
+        requested = [e for e in events if e.type == E.TOOL_CALL_REQUESTED]
+        assert len(requested) == 1
+
+        payload = requested[0].payload
+        assert "adapter_id" in payload
+        assert payload["adapter_id"] == "test-adapter"
+        assert "adapter_capabilities" in payload
+        assert set(payload["adapter_capabilities"]) == {
+            CAPABILITY_DRY_RUN,
+            CAPABILITY_APPLY,
+        }
+
+    def test_dual_adapter_deprecation_warning(self) -> None:
+        """Providing both adapter and adapters emits DeprecationWarning."""
+        store = EventStore(":memory:")
+
+        legacy = FakeAdapter(adapter_id="legacy")
+        registry = AdapterRegistry(default_adapter_id="registry")
+        registry.register(FakeAdapter(adapter_id="registry"))
+
+        with warnings.catch_warnings(record=True) as w:
+            warnings.simplefilter("always")
+            router = Router(store, adapter=legacy, adapters=registry)
+
+            assert len(w) == 1
+            assert issubclass(w[0].category, DeprecationWarning)
+            assert "adapter" in str(w[0].message)
+            assert "v0.7" in str(w[0].message)
+
+        # Registry still takes precedence
+        assert router.adapter.adapter_id == "registry"
+
+    def test_list_adapters_includes_adapter_kind(self) -> None:
+        """list_adapters response includes adapter_kind for each adapter."""
+        registry = AdapterRegistry(default_adapter_id="fake1")
+        registry.register(FakeAdapter(adapter_id="fake1"))
+        registry.register(NullAdapter(adapter_id="null1"))
+
+        result = list_adapters(registry)
+
+        for adapter_info in result["adapters"]:
+            assert "adapter_kind" in adapter_info
+
+        adapter_map = {a["adapter_id"]: a for a in result["adapters"]}
+        assert adapter_map["fake1"]["adapter_kind"] == "fake"
+        assert adapter_map["null1"]["adapter_kind"] == "null"
+
+    def test_list_adapters_with_filter_includes_adapter_kind(self) -> None:
+        """list_adapters with capability filter includes adapter_kind."""
+        registry = AdapterRegistry(default_adapter_id="fake1")
+        registry.register(FakeAdapter(adapter_id="fake1"))
+
+        result = list_adapters(registry, capability=CAPABILITY_APPLY)
+
+        assert result["total"] == 1
+        assert result["adapters"][0]["adapter_kind"] == "fake"

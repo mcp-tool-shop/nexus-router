@@ -100,6 +100,7 @@ def list_adapters(
         adapter_list = [
             {
                 "adapter_id": aid,
+                "adapter_kind": adapters.get(aid).adapter_kind,
                 "capabilities": sorted(adapters.get(aid).capabilities),
             }
             for aid in adapter_ids

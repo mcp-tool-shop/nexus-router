@@ -97,6 +97,16 @@ class DispatchAdapter(Protocol):
         ...
 
     @property
+    def adapter_kind(self) -> str:
+        """
+        Adapter type identifier (e.g., "null", "fake", "subprocess").
+
+        Used to distinguish adapter implementations when multiple instances
+        share similar IDs. Should be a short, lowercase identifier.
+        """
+        ...
+
+    @property
     def capabilities(self) -> FrozenSet[str]:
         """
         Declared capabilities of this adapter.
@@ -204,11 +214,12 @@ class AdapterRegistry:
         List all registered adapters with metadata.
 
         Returns:
-            List of dicts with adapter_id and capabilities.
+            List of dicts with adapter_id, adapter_kind, and capabilities.
         """
         return [
             {
                 "adapter_id": adapter.adapter_id,
+                "adapter_kind": adapter.adapter_kind,
                 "capabilities": sorted(adapter.capabilities),
             }
             for adapter in sorted(
@@ -299,6 +310,10 @@ class NullAdapter:
         return self._adapter_id
 
     @property
+    def adapter_kind(self) -> str:
+        return "null"
+
+    @property
     def capabilities(self) -> FrozenSet[str]:
         return self._capabilities
 
@@ -339,6 +354,10 @@ class FakeAdapter:
     @property
     def adapter_id(self) -> str:
         return self._adapter_id
+
+    @property
+    def adapter_kind(self) -> str:
+        return "fake"
 
     @property
     def capabilities(self) -> FrozenSet[str]:
@@ -552,6 +571,10 @@ class SubprocessAdapter:
     @property
     def adapter_id(self) -> str:
         return self._adapter_id
+
+    @property
+    def adapter_kind(self) -> str:
+        return "subprocess"
 
     @property
     def capabilities(self) -> FrozenSet[str]:

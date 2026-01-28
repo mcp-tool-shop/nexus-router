@@ -36,6 +36,11 @@ class DispatchAdapter(Protocol):
         ...
 
     @property
+    def adapter_kind(self) -> str:
+        """Type identifier (e.g., "null", "fake", "subprocess")."""
+        ...
+
+    @property
     def capabilities(self) -> FrozenSet[str]:
         """Declared capabilities."""
         ...
@@ -126,6 +131,27 @@ Events are stored in SQLite with:
 - Timestamps
 - JSON payloads
 
+### Platform Invariants (v0.6.1+)
+
+These invariants are **enforced** and **replay-visible**:
+
+1. **TOOL_CALL_REQUESTED** always includes:
+   - `adapter_id` - Which adapter will handle the call
+   - `adapter_capabilities` - Capability snapshot at request time
+
+2. **Capability failure** emits:
+   - `TOOL_CALL_FAILED` with `error_code="CAPABILITY_MISSING"`
+   - Terminal `RUN_FAILED` event
+   - Details include `required_capability` and `adapter_capabilities`
+
+3. **get_default()** is deterministic:
+   - Returns the adapter matching `default_adapter_id` set at registry construction
+   - Raises `KeyError` if that adapter is not registered
+
+4. **Deprecation path for `adapter` parameter**:
+   - If both `adapter` and `adapters` provided, `adapters` wins (with `DeprecationWarning`)
+   - In v0.7+, providing both will raise `ValueError`
+
 ### Replay & Validation
 
 ```python
@@ -192,3 +218,4 @@ nexus_router/
 | 0.4 | SubprocessAdapter, exception taxonomy |
 | 0.5 | Hardening: redaction, output limits, error codes |
 | 0.6 | **Platform**: AdapterRegistry, capabilities, enforcement |
+| 0.6.1 | Platform invariants: adapter_capabilities in events, adapter_kind, deprecation warning |

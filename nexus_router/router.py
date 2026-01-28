@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import time
+import warnings
 from typing import Any, Dict, List, Optional
 
 from . import events as E
@@ -51,9 +52,25 @@ class Router:
         1. If adapters is provided, use registry.get_default()
         2. Else if adapter is provided, use it directly
         3. Else use NullAdapter()
+
+        Warnings:
+            DeprecationWarning: If both adapter and adapters are provided.
+                In v0.7+, this will raise ValueError.
         """
         self.store = store
         self._registry = adapters
+        self._dual_adapter_warning_emitted = False
+
+        # Warn if both adapter and adapters provided (deprecated in v0.6, error in v0.7)
+        if adapter is not None and adapters is not None:
+            warnings.warn(
+                "Both 'adapter' and 'adapters' provided. "
+                "The 'adapter' parameter is deprecated; 'adapters' takes precedence. "
+                "In v0.7+, providing both will raise ValueError.",
+                DeprecationWarning,
+                stacklevel=2,
+            )
+            self._dual_adapter_warning_emitted = True
 
         # Resolve adapter: registry takes precedence
         if adapters is not None:
@@ -108,6 +125,7 @@ class Router:
                     "step_id": step_id,
                     "call": call,
                     "adapter_id": self.adapter.adapter_id,
+                    "adapter_capabilities": sorted(self.adapter.capabilities),
                 },
             )
 
