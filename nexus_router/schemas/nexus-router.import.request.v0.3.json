@@ -1,0 +1,48 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "nexus-router.import.request.v0.3",
+  "title": "nexus-router.import request",
+  "description": "Request schema for importing a bundle into a database",
+  "type": "object",
+  "properties": {
+    "db_path": {
+      "type": "string",
+      "description": "Path to SQLite database file"
+    },
+    "bundle": {
+      "type": "object",
+      "description": "The bundle to import",
+      "properties": {
+        "bundle_version": { "type": "string" },
+        "exported_at": { "type": "string" },
+        "run": { "type": "object" },
+        "events": { "type": "array" },
+        "digests": { "type": "object" },
+        "provenance": { "type": "object" }
+      },
+      "required": ["bundle_version", "run", "events", "digests"]
+    },
+    "mode": {
+      "type": "string",
+      "enum": ["reject_on_conflict", "new_run_id", "overwrite"],
+      "default": "reject_on_conflict",
+      "description": "Conflict resolution mode"
+    },
+    "new_run_id": {
+      "type": "string",
+      "description": "Custom run ID when mode is new_run_id"
+    },
+    "verify_digest": {
+      "type": "boolean",
+      "default": true,
+      "description": "Verify bundle digest before import"
+    },
+    "replay_after_import": {
+      "type": "boolean",
+      "default": true,
+      "description": "Run replay after import to verify integrity"
+    }
+  },
+  "required": ["db_path", "bundle"],
+  "additionalProperties": false
+}

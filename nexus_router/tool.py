@@ -7,6 +7,8 @@ from importlib import resources
 from typing import Any, Dict, cast
 
 from .event_store import EventStore
+from .export import export_run as _export_impl
+from .import_ import import_bundle as _import_impl
 from .inspect import inspect as _inspect_impl
 from .replay import replay as _replay_impl
 from .router import Router
@@ -16,6 +18,8 @@ from .schema import validate
 TOOL_ID_RUN = "nexus-router.run"
 TOOL_ID_INSPECT = "nexus-router.inspect"
 TOOL_ID_REPLAY = "nexus-router.replay"
+TOOL_ID_EXPORT = "nexus-router.export"
+TOOL_ID_IMPORT = "nexus-router.import"
 
 # Legacy alias
 TOOL_ID = TOOL_ID_RUN
@@ -110,4 +114,58 @@ def replay(request: Dict[str, Any]) -> Dict[str, Any]:
         db_path=request["db_path"],
         run_id=request["run_id"],
         strict=request.get("strict", True),
+    )
+
+
+def export(request: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Export a run as a deterministic, portable bundle.
+
+    Args:
+        request: Request dict conforming to nexus-router.export.request.v0.3 schema.
+                 Required: db_path, run_id
+                 Optional: include_provenance (default True), format (default bundle_v0_3)
+
+    Returns:
+        Response dict conforming to nexus-router.export.response.v0.3 schema.
+
+    Raises:
+        jsonschema.ValidationError: If request doesn't match schema.
+    """
+    schema = _load_schema("nexus-router.export.request.v0.3.json")
+    validate(request, schema)
+
+    return _export_impl(
+        db_path=request["db_path"],
+        run_id=request["run_id"],
+        include_provenance=request.get("include_provenance", True),
+    )
+
+
+def import_bundle(request: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Import a bundle into a database safely.
+
+    Args:
+        request: Request dict conforming to nexus-router.import.request.v0.3 schema.
+                 Required: db_path, bundle
+                 Optional: mode (default reject_on_conflict), new_run_id,
+                          verify_digest (default True), replay_after_import (default True)
+
+    Returns:
+        Response dict conforming to nexus-router.import.response.v0.3 schema.
+
+    Raises:
+        jsonschema.ValidationError: If request doesn't match schema.
+    """
+    schema = _load_schema("nexus-router.import.request.v0.3.json")
+    validate(request, schema)
+
+    return _import_impl(
+        db_path=request["db_path"],
+        bundle=request["bundle"],
+        mode=request.get("mode", "reject_on_conflict"),
+        new_run_id=request.get("new_run_id"),
+        verify_digest=request.get("verify_digest", True),
+        replay_after_import=request.get("replay_after_import", True),
     )

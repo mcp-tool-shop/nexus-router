@@ -1,0 +1,61 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "nexus-router.import.response.v0.3",
+  "title": "nexus-router.import response",
+  "description": "Response schema for bundle import",
+  "type": "object",
+  "properties": {
+    "status": {
+      "type": "string",
+      "enum": ["ok", "skipped", "error"],
+      "description": "Import result status"
+    },
+    "imported_run_id": {
+      "type": "string",
+      "description": "The run ID as stored in database"
+    },
+    "events_inserted": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Number of events inserted"
+    },
+    "conflict": {
+      "type": "object",
+      "description": "Conflict details if status is skipped",
+      "properties": {
+        "reason": { "type": "string" },
+        "existing_run_id": { "type": "string" }
+      },
+      "required": ["reason"]
+    },
+    "error": {
+      "type": "object",
+      "description": "Error details if status is error",
+      "properties": {
+        "code": { "type": "string" },
+        "message": { "type": "string" }
+      },
+      "required": ["code", "message"]
+    },
+    "replay_ok": {
+      "type": "boolean",
+      "description": "Whether replay passed after import"
+    },
+    "violations": {
+      "type": "array",
+      "description": "Replay violations if any",
+      "items": {
+        "type": "object",
+        "properties": {
+          "code": { "type": "string" },
+          "message": { "type": "string" },
+          "seq": { "type": "integer" },
+          "event_id": { "type": "string" }
+        },
+        "required": ["code", "message"]
+      }
+    }
+  },
+  "required": ["status"],
+  "additionalProperties": false
+}

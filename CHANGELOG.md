@@ -5,6 +5,39 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.0] - 2026-01-27
+
+### Added
+
+- **nexus-router.export**: Deterministic, portable snapshot of a run
+  - SHA256 digest over canonical {run, events} for integrity verification
+  - Repeated exports of same run produce identical digests
+  - Optional provenance record linking export to source
+  - Bundle format v0.3 designed for cross-DB portability
+- **nexus-router.import**: Safe bundle loading into a database
+  - Digest verification before import (default on)
+  - Conflict resolution modes: `reject_on_conflict`, `new_run_id`, `overwrite`
+  - Automatic run_id remapping in events when using `new_run_id` mode
+  - Post-import replay validation (default on)
+  - Preserves original event sequences and timestamps
+- **JSON Schemas** for v0.3 tools:
+  - `nexus-router.export.request.v0.3.json`
+  - `nexus-router.export.response.v0.3.json`
+  - `nexus-router.import.request.v0.3.json`
+  - `nexus-router.import.response.v0.3.json`
+- **Tests**: Contract tests, golden fixtures, and round-trip tests for export/import
+
+### Changed
+
+- `tool.py` exports `export()` and `import_bundle()` functions
+- `__init__.py` exports `export` and `import_` modules
+
+### Notes
+
+- Bundles are self-contained and replayable without original DB
+- Import normalizes IDs when mode=new_run_id (run_id, event_id, payload references)
+- Real tool dispatch still planned for future version
+
 ## [0.2.0] - 2025-01-28
 
 ### Added

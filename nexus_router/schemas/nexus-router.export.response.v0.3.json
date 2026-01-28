@@ -1,0 +1,90 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "nexus-router.export.response.v0.3",
+  "title": "nexus-router.export response",
+  "description": "Response schema for run export",
+  "type": "object",
+  "properties": {
+    "ok": {
+      "type": "boolean",
+      "description": "Whether export succeeded"
+    },
+    "artifact": {
+      "type": "object",
+      "description": "The exported bundle",
+      "properties": {
+        "bundle_version": {
+          "type": "string",
+          "description": "Bundle format version"
+        },
+        "exported_at": {
+          "type": "string",
+          "format": "date-time",
+          "description": "ISO 8601 timestamp of export"
+        },
+        "run": {
+          "type": "object",
+          "description": "The run row data",
+          "properties": {
+            "run_id": { "type": "string" },
+            "mode": { "type": "string" },
+            "goal": { "type": "string" },
+            "status": { "type": "string" },
+            "created_at": { "type": "string" }
+          },
+          "required": ["run_id", "mode", "goal", "status", "created_at"]
+        },
+        "events": {
+          "type": "array",
+          "description": "All events ordered by seq",
+          "items": {
+            "type": "object",
+            "properties": {
+              "event_id": { "type": "string" },
+              "run_id": { "type": "string" },
+              "seq": { "type": "integer", "minimum": 0 },
+              "type": { "type": "string" },
+              "payload": { "type": "object" },
+              "ts": { "type": "string" }
+            },
+            "required": ["event_id", "run_id", "seq", "type", "payload", "ts"]
+          }
+        },
+        "digests": {
+          "type": "object",
+          "description": "Integrity digests",
+          "properties": {
+            "sha256": {
+              "type": "string",
+              "pattern": "^[a-f0-9]{64}$",
+              "description": "SHA256 of canonical {run,events}"
+            }
+          },
+          "required": ["sha256"]
+        },
+        "provenance": {
+          "type": "object",
+          "description": "Optional provenance record",
+          "properties": {
+            "export_method": { "type": "string" },
+            "source_db_path": { "type": "string" },
+            "source_run_id": { "type": "string" },
+            "export_version": { "type": "string" }
+          }
+        }
+      },
+      "required": ["bundle_version", "exported_at", "run", "events", "digests"]
+    },
+    "error": {
+      "type": "object",
+      "description": "Error details if ok is false",
+      "properties": {
+        "code": { "type": "string" },
+        "message": { "type": "string" }
+      },
+      "required": ["code", "message"]
+    }
+  },
+  "required": ["ok"],
+  "additionalProperties": false
+}

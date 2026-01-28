@@ -1,0 +1,30 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "nexus-router.export.request.v0.3",
+  "title": "nexus-router.export request",
+  "description": "Request schema for exporting a run as a portable bundle",
+  "type": "object",
+  "properties": {
+    "db_path": {
+      "type": "string",
+      "description": "Path to SQLite database file"
+    },
+    "run_id": {
+      "type": "string",
+      "description": "The run ID to export"
+    },
+    "include_provenance": {
+      "type": "boolean",
+      "default": true,
+      "description": "Whether to include provenance record"
+    },
+    "format": {
+      "type": "string",
+      "enum": ["bundle_v0_3"],
+      "default": "bundle_v0_3",
+      "description": "Bundle format version"
+    }
+  },
+  "required": ["db_path", "run_id"],
+  "additionalProperties": false
+}
