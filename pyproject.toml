@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "nexus-router"
-version = "0.9.1"
+version = "0.9.2"
 description = "Event-sourced MCP router with provenance + integrity"
 readme = "README.md"
 requires-python = ">=3.9"
@@ -33,10 +33,10 @@ classifiers = [
 dependencies = ["jsonschema>=4.0.0"]
 
 [project.urls]
-Homepage = "https://github.com/mcp-tool-shop/nexus-router"
-Repository = "https://github.com/mcp-tool-shop/nexus-router"
-Issues = "https://github.com/mcp-tool-shop/nexus-router/issues"
-Changelog = "https://github.com/mcp-tool-shop/nexus-router/releases"
+Homepage = "https://github.com/mcp-tool-shop-org/nexus-router"
+Repository = "https://github.com/mcp-tool-shop-org/nexus-router"
+Issues = "https://github.com/mcp-tool-shop-org/nexus-router/issues"
+Changelog = "https://github.com/mcp-tool-shop-org/nexus-router/releases"
 
 [project.optional-dependencies]
 dev = ["pytest>=7", "ruff>=0.5.0", "mypy>=1.8.0"]
